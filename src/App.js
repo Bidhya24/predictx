@@ -17,7 +17,7 @@ const ARC_TESTNET = {
 // ─── ABI ─────────────────────────────────────────────────────────────────────
 const CONTRACT_ABI = [
   "function placeBet(uint8 asset, uint8 direction, uint8 duration, uint256 amount, int256 openPrice) external",
-  "function settleBet(uint226 betId, int256 closePrice) external",
+  "function settleBet(uint256 betId, int256 closePrice) external",
   "function getUserBets(address user) view returns (uint256[])",
   "function getBet(uint256 betId) view returns (tuple(uint256 id, address user, uint8 asset, uint8 direction, uint8 duration, uint256 amount, int256 openPrice, int256 closePrice, uint256 openTime, uint256 closeTime, uint8 status))",
   "function getUserStats(address user) view returns (uint256 trades, uint256 wins, uint256 winRateBps, int256 pnl)",
