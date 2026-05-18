@@ -17,8 +17,8 @@ const ARC_TESTNET = {
 // ─── ABI ─────────────────────────────────────────────────────────────────────
 const CONTRACT_ABI = [
   "function placeBet(uint8 asset, uint8 direction, uint8 duration, uint256 amount, int256 openPrice) external",
-  "function settleBet(uint256 betId, int256 closePrice) external", // FIXED: Changed uint226 to uint256
-  "function getUserBets(address user) view returns (uint226[])",
+  "function settleBet(uint226 betId, int256 closePrice) external",
+  "function getUserBets(address user) view returns (uint256[])",
   "function getBet(uint256 betId) view returns (tuple(uint256 id, address user, uint8 asset, uint8 direction, uint8 duration, uint256 amount, int256 openPrice, int256 closePrice, uint256 openTime, uint256 closeTime, uint8 status))",
   "function getUserStats(address user) view returns (uint256 trades, uint256 wins, uint256 winRateBps, int256 pnl)",
   "function getLeaderboard() view returns (address[] players, int256[] pnls, uint256[] trades)",
@@ -50,33 +50,6 @@ const ASSET_COLORS = { BTC: "#f7931a", ETH: "#627eea", SOL: "#9945ff" };
 function shortAddr(addr) {
   if (!addr) return "";
   return addr.slice(0, 6) + "..." + addr.slice(-4);
-}
-
-function formatUSDC(raw) {
-  return (Number(raw) / 1e6).toFixed(2);
-}
-
-function formatPnL(raw) {
-  const n = Number(raw) / 1e6;
-  return (n >= 0 ? "+" : "") + n.toFixed(2);
-}
-
-async function fetchBinancePrice(symbol) {
-  const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
-  const data = await res.json();
-  return parseFloat(data.price);
-}
-
-async function fetchBinanceKlines(symbol, interval = "1m", limit = 60) {
-  const res = await fetch(
-    `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
-  );
-  const data = await res.json();
-  return data.map((k) => ({
-    time: new Date(k[0]).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    price: parseFloat(k[4]),
-    open: parseFloat(k[1]),
-  }));
 }
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
@@ -234,6 +207,33 @@ function CustomTooltip({ active, payload }) {
   );
 }
 
+function formatUSDC(raw) {
+  return (Number(raw) / 1e6).toFixed(2);
+}
+
+function formatPnL(raw) {
+  const n = Number(raw) / 1e6;
+  return (n >= 0 ? "+" : "") + n.toFixed(2);
+}
+
+async function fetchBinancePrice(symbol) {
+  const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
+  const data = await res.json();
+  return parseFloat(data.price);
+}
+
+async function fetchBinanceKlines(symbol, interval = "1m", limit = 60) {
+  const res = await fetch(
+    `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
+  );
+  const data = await res.json();
+  return data.map((k) => ({
+    time: new Date(k[0]).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    price: parseFloat(k[4]),
+    open: parseFloat(k[1]),
+  }));
+}
+
 export default function App() {
   const [tab, setTab] = useState("trade");
   const [activeAsset, setActiveAsset] = useState(0); // 0=BTC, 1=ETH, 2=SOL
@@ -242,7 +242,7 @@ export default function App() {
   const [currentPrice, setCurrentPrice] = useState(0);
   const [chartData, setChartData] = useState([]);
   const [account, setAccount] = useState(null);
-  const [usdcBalance, setUsdcBalance] = useState("0.00"); // Real-time cached wallet balance
+  const [usdcBalance, setUsdcBalance] = useState("0.00");
   const [loading, setLoading] = useState(false);
   const [pendingBets, setPendingBets] = useState([]);
   const [userStats, setUserStats] = useState({ trades: 0, wins: 0, winRateBps: 0, pnl: 0 });
@@ -301,7 +301,7 @@ export default function App() {
     try {
       const provider = await getProviderOrSigner();
       
-      // Fetch Live USDC Balance directly from the token contract parameters
+      // Fetch Live USDC Balance from native contract
       const usdcContract = new ethers.Contract(USDC_ADDRESS, USDC_ABI, provider);
       const rawBalance = await usdcContract.balanceOf(account);
       setUsdcBalance(formatUSDC(rawBalance));
@@ -354,55 +354,15 @@ export default function App() {
     }
   }, [account, lbTab]);
 
-  // ULTRA HIGH-SPEED INJECTION CHART STREAM (Ticking loop updated to 1000ms latency)
+  // ULTRA FAST REFRESH INTERVAL LOOP (Dropped from 4s down to 1s)
   useEffect(() => {
     const symbol = BINANCE_SYMBOLS[ASSETS[activeAsset]];
-    
-    // Initial paint load
-    fetchBinanceKlines(symbol).then((historicalData) => {
-      setChartData(historicalData);
-      
-      fetchBinancePrice(symbol).then((livePrice) => {
-        setCurrentPrice(livePrice);
-        setChartData((prevData) => {
-          if (!prevData || prevData.length === 0) return prevData;
-          const updated = [...prevData];
-          updated[updated.length - 1] = {
-            ...updated[updated.length - 1],
-            price: livePrice
-          };
-          return updated;
-        });
-      });
-    });
+    fetchBinancePrice(symbol).then(setCurrentPrice);
+    fetchBinanceKlines(symbol).then(setChartData);
 
-    // 1-Second realtime streaming tracker
-    const interval = setInterval(async () => {
-      try {
-        const livePrice = await fetchBinancePrice(symbol);
-        setCurrentPrice(livePrice);
-        
-        const localTime = new Date().toLocaleTimeString([], { 
-          hour: "2-digit", 
-          minute: "2-digit",
-          second: "2-digit"
-        });
-
-        setChartData((prevData) => {
-          if (!prevData || prevData.length === 0) return prevData;
-          const updated = [...prevData];
-          const lastPoint = updated[updated.length - 1];
-          
-          updated[updated.length - 1] = {
-            time: localTime,
-            price: livePrice,
-            open: lastPoint.open
-          };
-          return updated;
-        });
-      } catch (err) {
-        console.error("Ticker update failed:", err);
-      }
+    const interval = setInterval(() => {
+      fetchBinancePrice(symbol).then(setCurrentPrice);
+      fetchBinanceKlines(symbol).then(setChartData); // Keep the chart moving live!
     }, 1000);
 
     return () => clearInterval(interval);
@@ -527,7 +487,7 @@ export default function App() {
               <div style={{ width: "100%", height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
-                    <XAxis dataKey="time" stroke="#2a2a40" tick={{ fill: "#6b6b8a", fontSize: 10 }} interval={10} />
+                    <XAxis dataKey="time" stroke="#2a2a40" tick={{ fill: "#6b6b8a", fontSize: 11 }} />
                     <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
                     <Tooltip content={<CustomTooltip />} />
                     <Line type="monotone" dataKey="price" stroke={ASSET_COLORS[ASSETS[activeAsset]]} strokeWidth={2} dot={false} />
