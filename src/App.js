@@ -1,82 +1,63 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { ethers } from "ethers";
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from 'recharts';
+import { ethers } from 'ethers';
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
-const CONTRACT_ADDRESS = "0xa0c7A8Ebf9E88B464a84F482ea2aC24688705052"; 
-const USDC_ADDRESS     = "0x3600000000000000000000000000000000000000"; // Arc Native System Contract
+const CONTRACT_ADDRESS = '0xa0c7A8Ebf9E88B464a84F482ea2aC24688705052';
+const USDC_ADDRESS = '0x3600000000000000000000000000000000000000'; // Arc Native System Contract
 
 const ARC_TESTNET = {
-  chainId:         "0x" + (5042002).toString(16), // 5042002 -> 0x4cef52
-  chainName:       "Arc Testnet",
-  nativeCurrency:  { name: "USDC", symbol: "USDC", decimals: 6 },
-  rpcUrls:         ["https://rpc.testnet.arc.network"],
-  blockExplorerUrls: ["https://testnet.arcscan.app"],
+  chainId: '0x' + (5042002).toString(16), // 5042002 -> 0x4cef52
+  chainName: 'Arc Testnet',
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 6 },
+  rpcUrls: ['https://rpc.testnet.arc.network'],
+  blockExplorerUrls: ['https://testnet.arcscan.app'],
 };
 
 // ─── ABI ─────────────────────────────────────────────────────────────────────
 const CONTRACT_ABI = [
-  "function placeBet(uint8 asset, uint8 direction, uint8 duration, uint256 amount, int256 openPrice) external",
-  "function settleBet(uint256 betId, int256 closePrice) external",
-  "function getUserBets(address user) view returns (uint256[])",
-  "function getBet(uint256 betId) view returns (tuple(uint256 id, address user, uint8 asset, uint8 direction, uint8 duration, uint256 amount, int256 openPrice, int256 closePrice, uint256 openTime, uint256 closeTime, uint8 status))",
-  "function getUserStats(address user) view returns (uint256 trades, uint256 wins, uint256 winRateBps, int256 pnl)",
-  "function getLeaderboard() view returns (address[] players, int256[] pnls, uint256[] trades)",
-  "function getWeeklyLeaderboard(uint256 week) view returns (address[] players, int256[] pnls)",
-  "function getDailyLeaderboard(uint256 day) view returns (address[] players, int256[] pnls)",
-  "function getPendingBets(address user) view returns (uint256[])",
-  "function currentWeek() view returns (uint256)",
-  "function currentDay() view returns (uint256)",
+  'function placeBet(uint8 asset, uint8 direction, uint8 duration, uint256 amount, int256 openPrice) external',
+  'function settleBet(uint256 betId, int256 closePrice) external',
+  'function getUserBets(address user) view returns (uint256[])',
+  'function getBet(uint256 betId) view returns (tuple(uint256 id, address user, uint8 asset, uint8 direction, uint8 duration, uint256 amount, int256 openPrice, int256 closePrice, uint256 openTime, uint256 closeTime, uint8 status))',
+  'function getUserStats(address user) view returns (uint256 trades, uint256 wins, uint256 winRateBps, int256 pnl)',
+  'function getLeaderboard() view returns (address[] players, int256[] pnls, uint256[] trades)',
+  'function getWeeklyLeaderboard(uint256 week) view returns (address[] players, int256[] pnls)',
+  'function getDailyLeaderboard(uint256 day) view returns (address[] players, int256[] pnls)',
+  'function getPendingBets(address user) view returns (uint256[])',
+  'function currentWeek() view returns (uint256)',
+  'function currentDay() view returns (uint256)',
 ];
 
 const USDC_ABI = [
-  "function approve(address spender, uint256 amount) external returns (bool)",
-  "function allowance(address owner, address spender) view returns (uint256)",
-  "function balanceOf(address account) view returns (uint256)",
+  'function approve(address spender, uint256 amount) external returns (bool)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function balanceOf(address account) view returns (uint256)',
 ];
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const ASSETS = ["BTC", "ETH", "SOL"];
-const BINANCE_SYMBOLS = { BTC: "BTCUSDT", ETH: "ETHUSDT", SOL: "SOLUSDT" };
+const ASSETS = ['BTC', 'ETH', 'SOL'];
+const BINANCE_SYMBOLS = { BTC: 'BTCUSDT', ETH: 'ETHUSDT', SOL: 'SOLUSDT' };
 const DURATIONS = [
-  { label: "1 minute",  value: 0, seconds: 60 },
-  { label: "3 minute",  value: 1, seconds: 180 },
-  { label: "5 minute",  value: 2, seconds: 300 },
+  { label: '1 minute', value: 0, seconds: 60 },
+  { label: '3 minute', value: 1, seconds: 180 },
+  { label: '5 minute', value: 2, seconds: 300 },
 ];
-const STATUS_MAP = { 0: "PENDING", 1: "WON", 2: "LOST", 3: "DRAW" };
-const ASSET_COLORS = { BTC: "#f7931a", ETH: "#627eea", SOL: "#9945ff" };
+const STATUS_MAP = { 0: 'PENDING', 1: 'WON', 2: 'LOST', 3: 'DRAW' };
+const ASSET_COLORS = { BTC: '#f7931a', ETH: '#627eea', SOL: '#9945ff' };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function shortAddr(addr) {
-  if (!addr) return "";
-  return addr.slice(0, 6) + "..." + addr.slice(-4);
-}
-
-function formatUSDC(raw) {
-  return (Number(raw) / 1e6).toFixed(2);
-}
-
-function formatPnL(raw) {
-  const n = Number(raw) / 1e6;
-  return (n >= 0 ? "+" : "") + n.toFixed(2);
-}
-
-async function fetchBinancePrice(symbol) {
-  const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
-  const data = await res.json();
-  return parseFloat(data.price);
-}
-
-async function fetchBinanceKlines(symbol, interval = "1m", limit = 60) {
-  const res = await fetch(
-    `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
-  );
-  const data = await res.json();
-  return data.map((k) => ({
-    time: new Date(k[0]).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    price: parseFloat(k[4]),
-    open: parseFloat(k[1]),
-  }));
+  if (!addr) return '';
+  return addr.slice(0, 6) + '...' + addr.slice(-4);
 }
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
@@ -138,7 +119,9 @@ const STYLES = `
   .pool-stats .up { color: var(--green); }
   .pool-stats .down { color: var(--red); }
   .bet-input-wrap { margin-bottom: 20px; }
-  .bet-input-label { font-size: 11px; color: var(--muted); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 8px; }
+  .bet-input-label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .bet-input-label { font-size: 11px; color: var(--muted); letter-spacing: 0.8px; text-transform: uppercase; }
+  .balance-display { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--accent); font-weight: bold; }
   .bet-input-row { display: flex; align-items: center; gap: 8px; }
   .bet-input { flex: 1; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text); font-family: 'Space Mono', monospace; font-size: 15px; outline: none; transition: border-color 0.2s; }
   .bet-input:focus { border-color: var(--accent); }
@@ -223,38 +206,96 @@ const STYLES = `
 function CustomTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ backgroundColor: "#0c0c14", border: "1px solid #1e1e30", padding: "10px", borderRadius: "6px" }}>
-      <p style={{ margin: 0, fontSize: "12px", color: "#6b6b8a" }}>{payload[0].payload.time}</p>
-      <p style={{ margin: "4px 0 0 0", fontFamily: "Space Mono, monospace", fontWeight: "bold", color: "#00e676" }}>
+    <div
+      style={{
+        backgroundColor: '#0c0c14',
+        border: '1px solid #1e1e30',
+        padding: '10px',
+        borderRadius: '6px',
+      }}
+    >
+      <p style={{ margin: 0, fontSize: '12px', color: '#6b6b8a' }}>
+        {payload[0].payload.time}
+      </p>
+      <p
+        style={{
+          margin: '4px 0 0 0',
+          fontFamily: 'Space Mono, monospace',
+          fontWeight: 'bold',
+          color: '#00e676',
+        }}
+      >
         ${payload[0].value.toFixed(2)}
       </p>
     </div>
   );
 }
 
+function formatUSDC(raw) {
+  return (Number(raw) / 1e6).toFixed(2);
+}
+
+function formatPnL(raw) {
+  const n = Number(raw) / 1e6;
+  return (n >= 0 ? '+' : '') + n.toFixed(2);
+}
+
+async function fetchBinancePrice(symbol) {
+  const res = await fetch(
+    `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`
+  );
+  const data = await res.json();
+  return parseFloat(data.price);
+}
+
+async function fetchBinanceKlines(symbol, interval = '1m', limit = 60) {
+  const res = await fetch(
+    `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
+  );
+  const data = await res.json();
+  return data.map((k) => ({
+    time: new Date(k[0]).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+    price: parseFloat(k[4]),
+    open: parseFloat(k[1]),
+  }));
+}
+
 export default function App() {
-  const [tab, setTab] = useState("trade");
+  const [tab, setTab] = useState('trade');
   const [activeAsset, setActiveAsset] = useState(0); // 0=BTC, 1=ETH, 2=SOL
   const [activeDuration, setActiveDuration] = useState(0); // 0=1m, 1=3m, 2=5m
-  const [betAmount, setBetAmount] = useState("10");
+  const [betAmount, setBetAmount] = useState('10');
   const [currentPrice, setCurrentPrice] = useState(0);
   const [chartData, setChartData] = useState([]);
   const [account, setAccount] = useState(null);
+  const [usdcBalance, setUsdcBalance] = useState('0.00');
   const [loading, setLoading] = useState(false);
   const [pendingBets, setPendingBets] = useState([]);
-  const [userStats, setUserStats] = useState({ trades: 0, wins: 0, winRateBps: 0, pnl: 0 });
+  const [userStats, setUserStats] = useState({
+    trades: 0,
+    wins: 0,
+    winRateBps: 0,
+    pnl: 0,
+  });
   const [history, setHistory] = useState([]);
-  const [leaderboard, setLeaderboard] = useState({ players: [], pnls: [], trades: [] });
-  const [lbTab, setLbTab] = useState("alltime");
+  const [leaderboard, setLeaderboard] = useState({
+    players: [],
+    pnls: [],
+    trades: [],
+  });
+  const [lbTab, setLbTab] = useState('alltime');
   const [toast, setToast] = useState(null);
 
-  const showToast = (text, type = "info") => {
+  const showToast = (text, type = 'info') => {
     setToast({ text, type });
     setTimeout(() => setToast(null), 4000);
   };
 
   const getProviderOrSigner = async (needSigner = false) => {
-    if (!window.ethereum) throw new Error("MetaMask not found");
+    if (!window.ethereum) throw new Error('MetaMask not found');
     const provider = new ethers.providers.Web3Provider(window.ethereum);
     if (needSigner) {
       return provider.getSigner();
@@ -264,18 +305,19 @@ export default function App() {
 
   const connectWallet = async () => {
     try {
-      if (!window.ethereum) return showToast("Please install MetaMask extension", "error");
+      if (!window.ethereum)
+        return showToast('Please install MetaMask extension', 'error');
       setLoading(true);
-      
+
       try {
         await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
+          method: 'wallet_switchEthereumChain',
           params: [{ chainId: ARC_TESTNET.chainId }],
         });
       } catch (switchError) {
         if (switchError.code === 4902) {
           await window.ethereum.request({
-            method: "wallet_addEthereumChain",
+            method: 'wallet_addEthereumChain',
             params: [ARC_TESTNET],
           });
         } else {
@@ -283,11 +325,13 @@ export default function App() {
         }
       }
 
-      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      const accounts = await window.ethereum.request({
+        method: 'eth_requestAccounts',
+      });
       setAccount(accounts[0]);
-      showToast("Wallet connected successfully", "success");
+      showToast('Wallet connected successfully', 'success');
     } catch (err) {
-      showToast(err.message || "Failed to connect wallet", "error");
+      showToast(err.message || 'Failed to connect wallet', 'error');
     } finally {
       setLoading(false);
     }
@@ -297,8 +341,22 @@ export default function App() {
     if (!account) return;
     try {
       const provider = await getProviderOrSigner();
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-      
+
+      // Fetch Live USDC Balance from native contract
+      const usdcContract = new ethers.Contract(
+        USDC_ADDRESS,
+        USDC_ABI,
+        provider
+      );
+      const rawBalance = await usdcContract.balanceOf(account);
+      setUsdcBalance(formatUSDC(rawBalance));
+
+      const contract = new ethers.Contract(
+        CONTRACT_ADDRESS,
+        CONTRACT_ABI,
+        provider
+      );
+
       const stats = await contract.getUserStats(account);
       setUserStats({
         trades: stats.trades.toNumber(),
@@ -326,9 +384,9 @@ export default function App() {
       setHistory(fetchedHistory.reverse());
 
       let lbData;
-      if (lbTab === "alltime") {
+      if (lbTab === 'alltime') {
         lbData = await contract.getLeaderboard();
-      } else if (lbTab === "weekly") {
+      } else if (lbTab === 'weekly') {
         const week = await contract.currentWeek();
         lbData = await contract.getWeeklyLeaderboard(week);
       } else {
@@ -337,14 +395,15 @@ export default function App() {
       }
       setLeaderboard({
         players: lbData.players,
-        pnls: lbData.pnls.map(p => p.toString()),
-        trades: lbData.trades ? lbData.trades.map(t => t.toNumber()) : [],
+        pnls: lbData.pnls.map((p) => p.toString()),
+        trades: lbData.trades ? lbData.trades.map((t) => t.toNumber()) : [],
       });
     } catch (err) {
-      console.error("Data fetch error:", err);
+      console.error('Data fetch error:', err);
     }
   }, [account, lbTab]);
 
+  // ULTRA FAST REFRESH INTERVAL LOOP (Dropped from 4s down to 1s)
   useEffect(() => {
     const symbol = BINANCE_SYMBOLS[ASSETS[activeAsset]];
     fetchBinancePrice(symbol).then(setCurrentPrice);
@@ -352,7 +411,8 @@ export default function App() {
 
     const interval = setInterval(() => {
       fetchBinancePrice(symbol).then(setCurrentPrice);
-    }, 4000);
+      fetchBinanceKlines(symbol).then(setChartData); // Keep the chart moving live!
+    }, 1000);
 
     return () => clearInterval(interval);
   }, [activeAsset]);
@@ -367,22 +427,29 @@ export default function App() {
       setLoading(true);
       const signer = await getProviderOrSigner(true);
       const usdcContract = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
-      const marketContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+      const marketContract = new ethers.Contract(
+        CONTRACT_ADDRESS,
+        CONTRACT_ABI,
+        signer
+      );
 
       const amountWei = ethers.utils.parseUnits(betAmount, 6);
-      showToast("Checking allowance...", "info");
-      
+      showToast('Checking allowance...', 'info');
+
       const allowance = await usdcContract.allowance(account, CONTRACT_ADDRESS);
       if (allowance.lt(amountWei)) {
-        showToast("Approving USDC spending...", "info");
-        const txApp = await usdcContract.approve(CONTRACT_ADDRESS, ethers.constants.MaxUint256);
+        showToast('Approving USDC spending...', 'info');
+        const txApp = await usdcContract.approve(
+          CONTRACT_ADDRESS,
+          ethers.constants.MaxUint256
+        );
         await txApp.wait();
-        showToast("USDC Approved!", "success");
+        showToast('USDC Approved!', 'success');
       }
 
       const priceScale = ethers.BigNumber.from(Math.round(currentPrice * 1e8));
-      showToast("Signing prediction transaction...", "info");
-      
+      showToast('Signing prediction transaction...', 'info');
+
       const txBet = await marketContract.placeBet(
         activeAsset,
         direction,
@@ -391,11 +458,14 @@ export default function App() {
         priceScale
       );
       await txBet.wait();
-      
-      showToast("Bet successfully submitted!", "success");
+
+      showToast('Bet successfully submitted!', 'success');
       fetchAppData();
     } catch (err) {
-      showToast(err.data?.message || err.message || "Transaction failed", "error");
+      showToast(
+        err.data?.message || err.message || 'Transaction failed',
+        'error'
+      );
     } finally {
       setLoading(false);
     }
@@ -405,21 +475,30 @@ export default function App() {
     try {
       setLoading(true);
       const signer = await getProviderOrSigner(true);
-      const marketContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+      const marketContract = new ethers.Contract(
+        CONTRACT_ADDRESS,
+        CONTRACT_ABI,
+        signer
+      );
       const symbol = BINANCE_SYMBOLS[ASSETS[activeAsset]];
-      
-      showToast("Fetching execution price...", "info");
-      const liveClosePrice = await fetchBinancePrice(symbol);
-      const closePriceScaled = ethers.BigNumber.from(Math.round(liveClosePrice * 1e8));
 
-      showToast("Settling position outcome...", "info");
+      showToast('Fetching execution price...', 'info');
+      const liveClosePrice = await fetchBinancePrice(symbol);
+      const closePriceScaled = ethers.BigNumber.from(
+        Math.round(liveClosePrice * 1e8)
+      );
+
+      showToast('Settling position outcome...', 'info');
       const tx = await marketContract.settleBet(betId, closePriceScaled);
       await tx.wait();
 
-      showToast("Position settled completely!", "success");
+      showToast('Position settled completely!', 'success');
       fetchAppData();
     } catch (err) {
-      showToast(err.data?.message || err.message || "Settlement failed", "error");
+      showToast(
+        err.data?.message || err.message || 'Settlement failed',
+        'error'
+      );
     } finally {
       setLoading(false);
     }
@@ -433,53 +512,98 @@ export default function App() {
       {toast && <div className={`toast ${toast.type}`}>{toast.text}</div>}
 
       <header className="header">
-        <div className="logo">PREDICT<span>X</span></div>
+        <div className="logo">
+          PREDICT<span>X</span>
+        </div>
         <nav className="nav">
-          <button className={`nav-btn ${tab === "trade" ? "active" : ""}`} onClick={() => setTab("trade")}>MARKET</button>
-          <button className={`nav-btn ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>DASHBOARD</button>
-          <button className={`nav-btn ${tab === "leaderboard" ? "active" : ""}`} onClick={() => setTab("leaderboard")}>LEADERBOARD</button>
+          <button
+            className={`nav-btn ${tab === 'trade' ? 'active' : ''}`}
+            onClick={() => setTab('trade')}
+          >
+            MARKET
+          </button>
+          <button
+            className={`nav-btn ${tab === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setTab('dashboard')}
+          >
+            DASHBOARD
+          </button>
+          <button
+            className={`nav-btn ${tab === 'leaderboard' ? 'active' : ''}`}
+            onClick={() => setTab('leaderboard')}
+          >
+            LEADERBOARD
+          </button>
         </nav>
-        <button className={`wallet-btn ${account ? "connected" : ""}`} onClick={connectWallet} disabled={loading}>
+        <button
+          className={`wallet-btn ${account ? 'connected' : ''}`}
+          onClick={connectWallet}
+          disabled={loading}
+        >
           {account ? (
             <>
               <div className="dot" />
               {shortAddr(account)}
             </>
+          ) : loading ? (
+            <div className="spinner" />
           ) : (
-            loading ? <div className="spinner" /> : "CONNECT WALLET"
+            'CONNECT WALLET'
           )}
         </button>
       </header>
 
-      {tab === "trade" && (
+      {tab === 'trade' && (
         <main className="main">
           <div className="chart-side">
             <div className="asset-tabs">
               {ASSETS.map((symbol, idx) => (
                 <button
                   key={symbol}
-                  className={`asset-tab ${activeAsset === idx ? "active" : ""}`}
+                  className={`asset-tab ${activeAsset === idx ? 'active' : ''}`}
                   onClick={() => setActiveAsset(idx)}
                 >
-                  <div className="asset-dot" style={{ backgroundColor: ASSET_COLORS[symbol] }} />
+                  <div
+                    className="asset-dot"
+                    style={{ backgroundColor: ASSET_COLORS[symbol] }}
+                  />
                   {symbol}
                 </button>
               ))}
             </div>
 
             <div className="price-header">
-              <div className="price-label">{ASSETS[activeAsset]} / USDC Price</div>
-              <div className="price-big">${currentPrice ? currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "0.00"}</div>
+              <div className="price-label">
+                {ASSETS[activeAsset]} / USDC Price
+              </div>
+              <div className="price-big">
+                $
+                {currentPrice
+                  ? currentPrice.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                    })
+                  : '0.00'}
+              </div>
             </div>
 
             <div className="chart-box">
-              <div style={{ width: "100%", height: 320 }}>
+              <div style={{ width: '100%', height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
-                    <XAxis dataKey="time" stroke="#2a2a40" tick={{ fill: "#6b6b8a", fontSize: 11 }} />
-                    <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
+                    <XAxis
+                      dataKey="time"
+                      stroke="#2a2a40"
+                      tick={{ fill: '#6b6b8a', fontSize: 11 }}
+                    />
+                    <YAxis hide domain={['dataMin - 5', 'dataMax + 5']} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Line type="monotone" dataKey="price" stroke={ASSET_COLORS[ASSETS[activeAsset]]} strokeWidth={2} dot={false} />
+                    <Line
+                      type="monotone"
+                      dataKey="price"
+                      stroke={ASSET_COLORS[ASSETS[activeAsset]]}
+                      strokeWidth={2}
+                      dot={false}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -489,7 +613,9 @@ export default function App() {
               {DURATIONS.map((dur) => (
                 <button
                   key={dur.value}
-                  className={`dur-tab ${activeDuration === dur.value ? "active" : ""}`}
+                  className={`dur-tab ${
+                    activeDuration === dur.value ? 'active' : ''
+                  }`}
                   onClick={() => setActiveDuration(dur.value)}
                 >
                   {dur.label}
@@ -502,7 +628,12 @@ export default function App() {
             <div className="panel-title">Execution Terminal</div>
 
             <div className="bet-input-wrap">
-              <div className="bet-input-label">Collateral Size</div>
+              <div className="bet-input-label-row">
+                <div className="bet-input-label">Collateral Size</div>
+                {account && (
+                  <div className="balance-display">Bal: {usdcBalance} USDC</div>
+                )}
+              </div>
               <div className="bet-input-row">
                 <input
                   type="number"
@@ -514,41 +645,86 @@ export default function App() {
                 <div className="usdc-tag">USDC</div>
               </div>
               <div className="quick-amounts">
-                {["10", "50", "100", "500"].map((amt) => (
-                  <button key={amt} className="quick-btn" onClick={() => setBetAmount(amt)}>${amt}</button>
+                {['10', '50', '100', '500'].map((amt) => (
+                  <button
+                    key={amt}
+                    className="quick-btn"
+                    onClick={() => setBetAmount(amt)}
+                  >
+                    ${amt}
+                  </button>
                 ))}
               </div>
             </div>
 
             <div className="payout-info">
-              <div className="payout-row"><span>Multiplier</span><span>2.00x</span></div>
-              <div className="payout-row"><span>Potential Returns</span><span>${(Number(betAmount) * 2).toFixed(2)} USDC</span></div>
+              <div className="payout-row">
+                <span>Multiplier</span>
+                <span>2.00x</span>
+              </div>
+              <div className="payout-row">
+                <span>Potential Returns</span>
+                <span>${(Number(betAmount) * 2).toFixed(2)} USDC</span>
+              </div>
             </div>
 
             <div className="bet-buttons">
-              <button className="btn-higher" onClick={() => handlePlaceBet(0)} disabled={loading}>HIGHER</button>
-              <button className="btn-lower" onClick={() => handlePlaceBet(1)} disabled={loading}>LOWER</button>
+              <button
+                className="btn-higher"
+                onClick={() => handlePlaceBet(0)}
+                disabled={loading}
+              >
+                HIGHER
+              </button>
+              <button
+                className="btn-lower"
+                onClick={() => handlePlaceBet(1)}
+                disabled={loading}
+              >
+                LOWER
+              </button>
             </div>
 
             <div className="pending-section">
-              <div className="pending-title">Positions Pending ({pendingBets.length})</div>
+              <div className="pending-title">
+                Positions Pending ({pendingBets.length})
+              </div>
               {pendingBets.length === 0 ? (
-                <div style={{ fontSize: "12px", color: "var(--muted)", padding: "10px 0" }}>No open positions.</div>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--muted)',
+                    padding: '10px 0',
+                  }}
+                >
+                  No open positions.
+                </div>
               ) : (
                 pendingBets.map((b) => {
-                  const remaining = Math.max(0, b.openTime.toNumber() + DURATIONS[b.duration].seconds - Math.floor(Date.now() / 1000));
+                  const remaining = Math.max(
+                    0,
+                    b.openTime.toNumber() +
+                      DURATIONS[b.duration].seconds -
+                      Math.floor(Date.now() / 1000)
+                  );
                   return (
                     <div key={b.id} className="pending-bet">
                       <div className="pending-bet-info">
-                        <div className="asset">{ASSETS[b.asset]} · {b.direction === 0 ? "HIGHER" : "LOWER"}</div>
-                        <div className="meta">${formatUSDC(b.amount)} USDC @ ${(b.openPrice.toNumber() / 1e8).toFixed(2)}</div>
+                        <div className="asset">
+                          {ASSETS[b.asset]} ·{' '}
+                          {b.direction === 0 ? 'HIGHER' : 'LOWER'}
+                        </div>
+                        <div className="meta">
+                          ${formatUSDC(b.amount)} USDC @ $
+                          {(b.openPrice.toNumber() / 1e8).toFixed(2)}
+                        </div>
                       </div>
                       <button
                         className="settle-btn"
                         onClick={() => handleSettle(b.id)}
                         disabled={remaining > 0 || loading}
                       >
-                        {remaining > 0 ? `${remaining}s` : "SETTLE"}
+                        {remaining > 0 ? `${remaining}s` : 'SETTLE'}
                       </button>
                     </div>
                   );
@@ -559,16 +735,23 @@ export default function App() {
         </main>
       )}
 
-      {tab === "dashboard" && (
+      {tab === 'dashboard' && (
         <div className="page">
           <h1 className="page-title">Personal Portal</h1>
-          <p className="page-sub">Historical track-record and real-time equity growth status.</p>
+          <p className="page-sub">
+            Historical track-record and real-time equity growth status.
+          </p>
 
           {!account ? (
             <div className="connect-prompt">
               <h2>Account disconnected</h2>
-              <p>Connect your Web3 core to unlock deep statistical indexing metrics.</p>
-              <button className="wallet-btn" onClick={connectWallet}>CONNECT WALLET</button>
+              <p>
+                Connect your Web3 core to unlock deep statistical indexing
+                metrics.
+              </p>
+              <button className="wallet-btn" onClick={connectWallet}>
+                CONNECT WALLET
+              </button>
             </div>
           ) : (
             <>
@@ -583,38 +766,69 @@ export default function App() {
                 </div>
                 <div className="stat-card">
                   <div className="label">Win Strategy Edge</div>
-                  <div className="value">{(userStats.winRateBps / 100).toFixed(1)}%</div>
+                  <div className="value">
+                    {(userStats.winRateBps / 100).toFixed(1)}%
+                  </div>
                 </div>
                 <div className="stat-card">
                   <div className="label">All-Time Net Profit</div>
-                  <div className={`value ${Number(userStats.pnl) >= 0 ? "green" : "red"}`}>
+                  <div
+                    className={`value ${
+                      Number(userStats.pnl) >= 0 ? 'green' : 'red'
+                    }`}
+                  >
                     ${formatPnL(userStats.pnl)}
                   </div>
                 </div>
               </div>
 
               <h3>Position Log</h3>
-              <div style={{ marginTop: "16px" }}>
+              <div style={{ marginTop: '16px' }}>
                 {history.length === 0 ? (
-                  <div className="empty">No historical positions loaded yet. Execute trade terms to begin.</div>
+                  <div className="empty">
+                    No historical positions loaded yet. Execute trade terms to
+                    begin.
+                  </div>
                 ) : (
                   history.map((b) => (
                     <div key={b.id} className="history-item">
-                      <div className={`history-icon ${STATUS_MAP[b.status].toLowerCase()}`}>
-                        {b.status === 1 ? "✓" : b.status === 2 ? "✕" : "⏳"}
+                      <div
+                        className={`history-icon ${STATUS_MAP[
+                          b.status
+                        ].toLowerCase()}`}
+                      >
+                        {b.status === 1 ? '✓' : b.status === 2 ? '✕' : '⏳'}
                       </div>
                       <div className="history-info">
-                        <div className="top">{ASSETS[b.asset]} · {b.direction === 0 ? "HIGHER" : "LOWER"}</div>
+                        <div className="top">
+                          {ASSETS[b.asset]} ·{' '}
+                          {b.direction === 0 ? 'HIGHER' : 'LOWER'}
+                        </div>
                         <div className="bot">
-                          Open: ${(b.openPrice.toNumber() / 1e8).toFixed(2)} 
-                          {b.status !== 0 && ` · Close: ${(b.closePrice.toNumber() / 1e8).toFixed(2)}`}
+                          Open: ${(b.openPrice.toNumber() / 1e8).toFixed(2)}
+                          {b.status !== 0 &&
+                            ` · Close: ${(
+                              b.closePrice.toNumber() / 1e8
+                            ).toFixed(2)}`}
                         </div>
                       </div>
                       <div className="history-result">
-                        <div className={`amount ${STATUS_MAP[b.status].toLowerCase()}`}>
-                          {b.status === 1 ? `+$${formatUSDC(b.amount)}` : b.status === 2 ? `-$${formatUSDC(b.amount)}` : "PENDING"}
+                        <div
+                          className={`amount ${STATUS_MAP[
+                            b.status
+                          ].toLowerCase()}`}
+                        >
+                          {b.status === 1
+                            ? `+$${formatUSDC(b.amount)}`
+                            : b.status === 2
+                            ? `-$${formatUSDC(b.amount)}`
+                            : 'PENDING'}
                         </div>
-                        <div className="date">{new Date(b.openTime.toNumber() * 1000).toLocaleDateString()}</div>
+                        <div className="date">
+                          {new Date(
+                            b.openTime.toNumber() * 1000
+                          ).toLocaleDateString()}
+                        </div>
                       </div>
                     </div>
                   ))
@@ -625,34 +839,71 @@ export default function App() {
         </div>
       )}
 
-      {tab === "leaderboard" && (
+      {tab === 'leaderboard' && (
         <div className="page">
           <h1 className="page-title">Global Standings</h1>
-          <p className="page-sub">Top operational net accounts performing on Arc network parameters.</p>
+          <p className="page-sub">
+            Top operational net accounts performing on Arc network parameters.
+          </p>
 
           <div className="lb-tabs">
-            <button className={`lb-tab ${lbTab === "alltime" ? "active" : ""}`} onClick={() => setLbTab("alltime")}>ALL TIME</button>
-            <button className={`lb-tab ${lbTab === "weekly" ? "active" : ""}`} onClick={() => setLbTab("weekly")}>WEEKLY</button>
-            <button className={`lb-tab ${lbTab === "daily" ? "active" : ""}`} onClick={() => setLbTab("daily")}>DAILY</button>
+            <button
+              className={`lb-tab ${lbTab === 'alltime' ? 'active' : ''}`}
+              onClick={() => setLbTab('alltime')}
+            >
+              ALL TIME
+            </button>
+            <button
+              className={`lb-tab ${lbTab === 'weekly' ? 'active' : ''}`}
+              onClick={() => setLbTab('weekly')}
+            >
+              WEEKLY
+            </button>
+            <button
+              className={`lb-tab ${lbTab === 'daily' ? 'active' : ''}`}
+              onClick={() => setLbTab('daily')}
+            >
+              DAILY
+            </button>
           </div>
 
-          <div style={{ marginTop: "16px" }}>
+          <div style={{ marginTop: '16px' }}>
             {leaderboard.players.length === 0 ? (
-              <div className="empty">No active competitor records tracked for this epoch timeline.</div>
+              <div className="empty">
+                No active competitor records tracked for this epoch timeline.
+              </div>
             ) : (
               leaderboard.players.map((player, idx) => {
                 const currentPnL = Number(leaderboard.pnls[idx]);
                 return (
-                  <div key={player} className={`lb-row ${idx < 3 ? "top3" : ""}`}>
-                    <div className={`lb-rank ${idx === 0 ? "gold" : idx === 1 ? "silver" : idx === 2 ? "bronze" : ""}`}>
+                  <div
+                    key={player}
+                    className={`lb-row ${idx < 3 ? 'top3' : ''}`}
+                  >
+                    <div
+                      className={`lb-rank ${
+                        idx === 0
+                          ? 'gold'
+                          : idx === 1
+                          ? 'silver'
+                          : idx === 2
+                          ? 'bronze'
+                          : ''
+                      }`}
+                    >
                       #{idx + 1}
                     </div>
                     <div className="lb-addr">{shortAddr(player)}</div>
                     {leaderboard.trades[idx] !== undefined && (
-                      <div className="lb-trades">{leaderboard.trades[idx]} Trades</div>
+                      <div className="lb-trades">
+                        {leaderboard.trades[idx]} Trades
+                      </div>
                     )}
-                    <div className={`lb-pnl ${currentPnL >= 0 ? "pos" : "neg"}`}>
-                      {currentPnL >= 0 ? "+" : ""}${(currentPnL / 1e6).toFixed(2)}
+                    <div
+                      className={`lb-pnl ${currentPnL >= 0 ? 'pos' : 'neg'}`}
+                    >
+                      {currentPnL >= 0 ? '+' : ''}$
+                      {(currentPnL / 1e6).toFixed(2)}
                     </div>
                   </div>
                 );
